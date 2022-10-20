@@ -17,7 +17,7 @@ class GraphBuilder
      * @param $models
      * @return Graph
      */
-    public function buildGraph(Collection $models) : Graph
+    public function buildGraph(Collection $models): Graph
     {
         $this->graph = new Graph();
 
@@ -52,20 +52,31 @@ class GraphBuilder
         return [];
     }
 
-    protected function getModelLabel(EloquentModel $model, string $label)
+    protected function getModelLabel(EloquentModel $eloquentModel, Model $model, Collection $allRelations)
     {
-
         $table = '<<table width="100%" height="100%" border="0" margin="0" cellborder="1" cellspacing="0" cellpadding="10">' . PHP_EOL;
-        $table .= '<tr width="100%"><td width="100%" bgcolor="'.config('erd-generator.table.header_background_color').'"><font color="'.config('erd-generator.table.header_font_color').'">' . $label . '</font></td></tr>' . PHP_EOL;
+        $table .= '<tr width="100%"><td width="100%" bgcolor="' . config('erd-generator.table.header_background_color') . '"><font color="' . config('erd-generator.table.header_font_color') . '">' . $model->getLabel() . '</font></td></tr>' . PHP_EOL;
+
+        /** @var Collection */
+        $relations = $allRelations->get($model->getModel());
 
         if (config('erd-generator.use_db_schema')) {
-            $columns = $this->getTableColumnsFromModel($model);
+            $columns = $this->getTableColumnsFromModel($eloquentModel);
             foreach ($columns as $column) {
                 $label = $column->getName();
-                if (config('erd-generator.use_column_types')) {
-                    $label .= ' ('.$column->getType()->getName().')';
+
+                $relationsOnly = true; // TODO: to config
+
+                if ($relationsOnly) {
+                    if (!$relations->contains($label)) {
+                        continue;
+                    }
                 }
-                $table .= '<tr width="100%"><td port="' . $column->getName() . '" align="left" width="100%"  bgcolor="'.config('erd-generator.table.row_background_color').'"><font color="'.config('erd-generator.table.row_font_color').'" >' . $label . '</font></td></tr>' . PHP_EOL;
+
+                if (config('erd-generator.use_column_types')) {
+                    $label .= ' (' . $column->getType()->getName() . ')';
+                }
+                $table .= '<tr width="100%"><td port="' . $column->getName() . '" align="left" width="100%"  bgcolor="' . config('erd-generator.table.row_background_color') . '"><font color="' . config('erd-generator.table.row_font_color') . '" >' . $label . '</font></td></tr>' . PHP_EOL;
             }
         }
 
@@ -76,10 +87,25 @@ class GraphBuilder
 
     protected function addModelsToGraph(Collection $models)
     {
+        // All relations
+        $allRelations = new Collection();
+        $models->each(function (Model $model) use ($allRelations) {
+            $allRelations->put($model->getModel(), new Collection());
+        });
+        $models->each(function (Model $model) use ($allRelations) {
+            $model->getRelations()->each(function (ModelRelation $relation) use ($allRelations) {
+                $allRelations->put(
+                    $relation->getModel(),
+                    $allRelations->get($relation->getModel())
+                        ->merge($relation->getForeignKey())
+                );
+            });
+        });
+
         // Add models to graph
-        $models->map(function (Model $model) {
+        $models->map(function (Model $model) use ($allRelations) {
             $eloquentModel = app($model->getModel());
-            $this->addNodeToGraph($eloquentModel, $model->getNodeName(), $model->getLabel());
+            $this->addNodeToGraph($eloquentModel, $model, $allRelations);
         });
 
         // Create relations
@@ -88,10 +114,10 @@ class GraphBuilder
         });
     }
 
-    protected function addNodeToGraph(EloquentModel $eloquentModel, string $nodeName, string $label)
+    protected function addNodeToGraph(EloquentModel $eloquentModel, Model $model, Collection $allRelations)
     {
-        $node = Node::create($nodeName);
-        $node->setLabel($this->getModelLabel($eloquentModel, $label));
+        $node = Node::create($model->getNodeName());
+        $node->setLabel($this->getModelLabel($eloquentModel, $model, $allRelations));
 
         foreach (config('erd-generator.node') as $key => $value) {
             $node->{"set${key}"}($value);
@@ -193,7 +219,8 @@ class GraphBuilder
             );
 
             $this->connectNodes($pivotModelNode, $relatedModelNode, $relation);
-        } catch (\ReflectionException $e){}
+        } catch (\ReflectionException $e) {
+        }
     }
 
     /**
