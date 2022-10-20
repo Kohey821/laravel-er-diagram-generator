@@ -93,11 +93,16 @@ class GraphBuilder
             $allRelations->put($model->getModel(), new Collection());
         });
         $models->each(function (Model $model) use ($allRelations) {
-            $model->getRelations()->each(function (ModelRelation $relation) use ($allRelations) {
+            $model->getRelations()->each(function (ModelRelation $relation) use ($allRelations, $model) {
                 $allRelations->put(
                     $relation->getModel(),
                     $allRelations->get($relation->getModel())
                         ->merge($relation->getForeignKey())
+                );
+                $allRelations->put(
+                    $model->getModel(),
+                    $allRelations->get($model->getModel())
+                        ->merge($relation->getLocalKey())
                 );
             });
         });
